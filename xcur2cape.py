@@ -186,8 +186,8 @@ class XCursor(object):
         z = base64.b64decode(new_xc.img_data)[16:][:8]
         x1, y1 = struct.unpack('>ii', z)
         new_xc.img_size = x1
-        new_xc.hs_x = (new_xc.hs_x / int(secs[0])) * new_xc.img_size
-        new_xc.hs_y = (new_xc.hs_y / int(secs[0])) * new_xc.img_size
+        new_xc.hs_x = (float(new_xc.hs_x) / float(secs[0])) * new_xc.img_size
+        new_xc.hs_y = (float(new_xc.hs_y) / float(secs[0])) * new_xc.img_size
 
         return new_xc
 
