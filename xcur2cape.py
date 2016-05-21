@@ -48,16 +48,14 @@ class CapeObject(object):
         new_co.capename = xct.theme_name
         for xcs in xct.cursors:
             for cc in CapeCursor.from_xcursor_set(xcs, 32):
-                pass
-                # TODO: finish this
-
-
+                new_co.add_cursor(cc)
+        return new_co
 
 
 class CapeCursor(object):
     def __init__(self):
         self.mc_namekey = ""
-        self.frame_counnt = 1
+        self.frame_count = 1
         self.frame_duration = float(1).real
         self.hotspotx = float(0.0).real
         self.hotspoty = float(0.0).real
@@ -85,7 +83,9 @@ class CapeCursor(object):
         d2['HotSpotY'] = self.hotspoty
         d2['PointsHigh'] = self.height
         d2['PointsWide'] = self.width
-        d2['Representations'] = [plistlib.Data(x) for x in self.images]
+        print self.images[0]
+        print d2['PointsHigh']
+        d2['Representations'] = [plistlib.Data.fromBase64(x) for x in self.images]
         return d2
 
     @classmethod
@@ -97,10 +97,12 @@ class CapeCursor(object):
             for xc in xcs.xcursors:
                 assert isinstance(xc, XCursor)
                 if xc.img_size == chosen_size:
+                    print xc.img_size
                     new_cc.images.append(xc.img_data)
                     new_cc.hotspotx = float(xc.hs_x)
                     new_cc.hotspoty = float(xc.hs_y)
-                    new_cc.height = new_cc.width = float(chosen_size)
+                    new_cc.height = float(xc.img_size)
+                    new_cc.width = float(xc.img_size)
             new_cc.mc_namekey = line[1]
             yield new_cc
 
@@ -190,3 +192,8 @@ class XCursor(object):
 test_xct1 = XCursorTheme.unpack_theme(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
 print test_xct1.theme_name
 print len(test_xct1.cursors)
+test_co1 = CapeObject.from_theme(test_xct1)
+
+test_pl_dict = test_co1.export_dict()
+plistlib.writePlist(test_pl_dict, test_pl_dict['Identifier'] + '.cape')
+
