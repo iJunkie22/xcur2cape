@@ -31,7 +31,27 @@ class CapeObject(object):
         d1['HiDPI'] = self.isRetina
         d1['MinimumVersion'] = self._version
         d1['Identifier'] = "local.{}.{}.{}".format(self.author, self.capename, str(self.tstamp))
+        d1['Cursors'] = {}
+        for k, v in self.cursors.items():
+            assert isinstance(v, CapeCursor)
+            d1['Cursors'][k] = v.export_dict()
         return d1
+
+    def add_cursor(self, cc):
+        assert isinstance(cc, CapeCursor)
+        self.cursors[xcurnames.cursor_name_map[cc.mc_namekey]] = cc
+
+    @classmethod
+    def from_theme(cls, xct):
+        assert isinstance(xct, XCursorTheme)
+        new_co = cls()
+        new_co.capename = xct.theme_name
+        for xcs in xct.cursors:
+            for cc in CapeCursor.from_xcursor_set(xcs, 32):
+                pass
+                # TODO: finish this
+
+
 
 
 class CapeCursor(object):
@@ -59,7 +79,30 @@ class CapeCursor(object):
 
     def export_dict(self):
         d2 = {}
+        d2['FrameCount'] = self.frame_count
+        d2['FrameDuration'] = self.frame_duration
+        d2['HotSpotX'] = self.hotspotx
+        d2['HotSpotY'] = self.hotspoty
+        d2['PointsHigh'] = self.height
+        d2['PointsWide'] = self.width
+        d2['Representations'] = [plistlib.Data(x) for x in self.images]
         return d2
+
+    @classmethod
+    def from_xcursor_set(cls, xcs, chosen_size):
+        assert isinstance(xcs, XCursorSet)
+        assert isinstance(chosen_size, int)
+        for line in [table_line for table_line in xcurnames.name_table if table_line[2] == xcs.xc_name]:
+            new_cc = cls()
+            for xc in xcs.xcursors:
+                assert isinstance(xc, XCursor)
+                if xc.img_size == chosen_size:
+                    new_cc.images.append(xc.img_data)
+                    new_cc.hotspotx = float(xc.hs_x)
+                    new_cc.hotspoty = float(xc.hs_y)
+                    new_cc.height = new_cc.width = float(chosen_size)
+            new_cc.mc_namekey = line[1]
+            yield new_cc
 
 
 class XCursorTheme(object):
