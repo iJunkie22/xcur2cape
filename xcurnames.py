@@ -58,3 +58,4 @@ name_table = [
 
 cursor_name_map = {k: v for (v, k, f) in name_table}
 
+
