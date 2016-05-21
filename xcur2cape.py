@@ -188,6 +188,10 @@ class XCursor(object):
         new_xc.img_size = x1
         new_xc.hs_x = (float(new_xc.hs_x) / float(secs[0])) * new_xc.img_size
         new_xc.hs_y = (float(new_xc.hs_y) / float(secs[0])) * new_xc.img_size
+        new_xc.hs_x = new_xc.hs_x if new_xc.hs_x <= new_xc.img_size else (new_xc.img_size / 2.0)
+        new_xc.hs_y = new_xc.hs_y if new_xc.hs_y <= new_xc.img_size else (new_xc.img_size / 2.0)
+        new_xc.hs_x = new_xc.hs_x if (new_xc.hs_x / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
+        new_xc.hs_y = new_xc.hs_y if (new_xc.hs_y / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
 
         return new_xc
 
