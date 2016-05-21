@@ -6,6 +6,7 @@ import xcurnames
 import os.path
 import subprocess
 import shlex
+import struct
 
 
 XCUR2PNG_EXECUTABLE = os.path.expanduser('~/Build/xcur2png/xcur2png')
@@ -47,7 +48,7 @@ class CapeObject(object):
         new_co = cls()
         new_co.capename = xct.theme_name
         for xcs in xct.cursors:
-            for cc in CapeCursor.from_xcursor_set(xcs, 32):
+            for cc in CapeCursor.from_xcursor_set(xcs):
                 new_co.add_cursor(cc)
         return new_co
 
@@ -83,13 +84,11 @@ class CapeCursor(object):
         d2['HotSpotY'] = self.hotspoty
         d2['PointsHigh'] = self.height
         d2['PointsWide'] = self.width
-        print self.images[0]
-        print d2['PointsHigh']
         d2['Representations'] = [plistlib.Data.fromBase64(x) for x in self.images]
         return d2
 
     @classmethod
-    def from_xcursor_set(cls, xcs, chosen_size):
+    def from_xcursor_set(cls, xcs, chosen_size=32):
         assert isinstance(xcs, XCursorSet)
         assert isinstance(chosen_size, int)
         for line in [table_line for table_line in xcurnames.name_table if table_line[2] == xcs.xc_name]:
@@ -97,7 +96,6 @@ class CapeCursor(object):
             for xc in xcs.xcursors:
                 assert isinstance(xc, XCursor)
                 if xc.img_size == chosen_size:
-                    print xc.img_size
                     new_cc.images.append(xc.img_data)
                     new_cc.hotspotx = float(xc.hs_x)
                     new_cc.hotspoty = float(xc.hs_y)
@@ -185,6 +183,11 @@ class XCursor(object):
             new_xc.fp = secs[3]
         with open(new_xc.fp, 'rb') as xcur_fd:
             new_xc.img_data = base64.b64encode(xcur_fd.read())
+        z = base64.b64decode(new_xc.img_data)[16:][:8]
+        x1, y1 = struct.unpack('>ii', z)
+        new_xc.img_size = x1
+        new_xc.hs_x = (new_xc.hs_x / int(secs[0])) * new_xc.img_size
+        new_xc.hs_y = (new_xc.hs_y / int(secs[0])) * new_xc.img_size
 
         return new_xc
 
