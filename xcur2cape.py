@@ -134,24 +134,21 @@ class XCursorSet(object):
     def is_known_xc(self):
         return self.xc_name in [x[2] for x in xcurnames.name_table]
 
-    def unpack_from_conf(self, animated=False):
-        if not animated:
-            for line in self.conf_file_str.splitlines():
-                if not line.startswith("#"):
-                    self.xcursors.append(XCursor.from_conf_file_line(self.conf_fp, line))
+    def unpack_from_conf(self):
+        conf_line_groups = {}
+        conf_line_keys = conf_line_groups.viewkeys()
 
-        else:  # if animated:
-            conf_line_groups = {}
-            conf_line_keys = conf_line_groups.viewkeys()
+        for line in self.conf_file_str.splitlines():
+            if not line.startswith("#"):
+                conf_size = line.partition('\t')[0]
+                if conf_size not in conf_line_keys:
+                    conf_line_groups[conf_size] = []
+                conf_line_groups[conf_size].append(line)
 
-            for line in self.conf_file_str.splitlines():
-                if not line.startswith("#"):
-                    conf_size = line.partition('\t')[0]
-                    if conf_size not in conf_line_keys:
-                        conf_line_groups[conf_size] = []
-                    conf_line_groups[conf_size].append(line)
-
-            for k in conf_line_keys:
+        for k in conf_line_keys:
+            if len(conf_line_groups[k]) == 1:   # there is only one frame to show
+                self.xcursors.append(XCursor.from_conf_file_line(self.conf_fp, conf_line_groups[k][0]))
+            else:                               # there is more than one frame to show
                 self.xcursors.append(XCursor.animated_from_conf_file_lines(self.conf_fp, conf_line_groups[k]))
 
     @classmethod
@@ -162,8 +159,7 @@ class XCursorSet(object):
         with open(new_xcs.conf_fp, 'r') as conf_fd:
             new_xcs.conf_file_str = conf_fd.read()
 
-        is_animated = xcurnames.name_table[[n[2] for n in xcurnames.name_table].index(new_xcs.xc_name)][3]
-        new_xcs.unpack_from_conf(animated=is_animated)
+        new_xcs.unpack_from_conf()
         return new_xcs
 
     @classmethod
