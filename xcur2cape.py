@@ -5,7 +5,6 @@ import base64
 import xcurnames
 import os.path
 import subprocess
-import shlex
 import struct
 
 
@@ -267,4 +266,5 @@ def run_tool(theme_fp):
 run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
 run_tool(os.path.expanduser('~/Downloads/Breeze-Snow/'))
 run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked/'))
+run_tool(os.path.expanduser('~/Downloads/Breeze/'))
 
