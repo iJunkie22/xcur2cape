@@ -6,9 +6,47 @@ import xcurnames
 import os.path
 import subprocess
 import struct
+import math
 
 
 XCUR2PNG_EXECUTABLE = os.path.expanduser('~/Build/xcur2png/xcur2png')
+
+
+class FrameOverFlowHandler(object):
+    MAX_FRAME_COUNT = 24
+
+    @classmethod
+    def use(cls, frame_list, choice=2):
+        choices = (cls.truncate, cls.rtruncate, cls.smart_step)
+        return choices[choice](frame_list)
+
+    @classmethod
+    def calc_oflw(cls, frame_list):
+        assert isinstance(frame_list, list)
+        return len(frame_list) - cls.MAX_FRAME_COUNT
+
+    @classmethod
+    def truncate(cls, frame_list):
+        assert isinstance(frame_list, list)
+        frame_list = frame_list[:cls.MAX_FRAME_COUNT]
+        return frame_list
+
+    @classmethod
+    def rtruncate(cls, frame_list):
+        assert isinstance(frame_list, list)
+        o = cls.calc_oflw(frame_list)
+        frame_list = frame_list[o:]
+        return frame_list
+
+    @classmethod
+    def smart_step(cls, frame_list):    # see frametests.py for tests of this
+        assert isinstance(frame_list, list)
+        o = cls.calc_oflw(frame_list)
+        if o > 0:
+            k = math.ceil((float((o % cls.MAX_FRAME_COUNT) + len(frame_list)) / float(cls.MAX_FRAME_COUNT)))
+            frame_list = frame_list[0::int(k)]
+
+        return frame_list
 
 
 class CapeObject(object):
@@ -149,7 +187,8 @@ class XCursorSet(object):
             if len(conf_line_groups[k]) == 1:   # there is only one frame to show
                 self.xcursors.append(XCursor.from_conf_file_line(self.conf_fp, conf_line_groups[k][0]))
             else:                               # there is more than one frame to show
-                self.xcursors.append(XCursor.animated_from_conf_file_lines(self.conf_fp, conf_line_groups[k]))
+                safe_size_list = FrameOverFlowHandler.smart_step(conf_line_groups[k])  # enforce 24 frame limit
+                self.xcursors.append(XCursor.animated_from_conf_file_lines(self.conf_fp, safe_size_list))
 
     @classmethod
     def from_conf_file(cls, conf_fp):
