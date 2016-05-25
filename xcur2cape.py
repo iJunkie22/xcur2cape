@@ -221,6 +221,20 @@ class XCursor(object):
         self.img_data = ""
         self.frame_count = 1
 
+    @staticmethod
+    def hotfixes(new_xc1, size_lie):
+        def tests(a, b):
+            if (a > b) or ((a / b) == (15.0 / 16.0)):
+                return b / 2.0
+            else:
+                return a
+
+        error_scale = new_xc1.img_size / float(size_lie)
+        new_xc1.hs_x *= error_scale
+        new_xc1.hs_y *= error_scale
+        new_xc1.hs_x = tests(new_xc1.hs_x, new_xc1.img_size)
+        new_xc1.hs_y = tests(new_xc1.hs_y, new_xc1.img_size)
+
     @classmethod
     def from_conf_file_line(cls, conf_fp, conf_line_str):
         new_xc = cls()
@@ -238,12 +252,7 @@ class XCursor(object):
         z = base64.b64decode(new_xc.img_data)[16:][:8]
         x1, y1 = struct.unpack('>ii', z)
         new_xc.img_size = x1
-        new_xc.hs_x = (float(new_xc.hs_x) / float(secs[0])) * new_xc.img_size
-        new_xc.hs_y = (float(new_xc.hs_y) / float(secs[0])) * new_xc.img_size
-        new_xc.hs_x = new_xc.hs_x if new_xc.hs_x <= new_xc.img_size else (new_xc.img_size / 2.0)
-        new_xc.hs_y = new_xc.hs_y if new_xc.hs_y <= new_xc.img_size else (new_xc.img_size / 2.0)
-        new_xc.hs_x = new_xc.hs_x if (new_xc.hs_x / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
-        new_xc.hs_y = new_xc.hs_y if (new_xc.hs_y / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
+        new_xc.hotfixes(new_xc, secs[0])
         return new_xc
 
     @classmethod
@@ -275,15 +284,11 @@ class XCursor(object):
         with open(export_fp, 'rb') as export_fd:
             new_xc.img_data = base64.b64encode(export_fd.read())
 
-        new_xc.hs_x = int(conf_hs_x)
-        new_xc.hs_y = int(conf_hs_y)
+        new_xc.hs_x = float(conf_hs_x)
+        new_xc.hs_y = float(conf_hs_y)
         new_xc.img_size = sample_x1
-        new_xc.hs_x = (float(new_xc.hs_x) / float(conf_img_size)) * new_xc.img_size
-        new_xc.hs_y = (float(new_xc.hs_y) / float(conf_img_size)) * new_xc.img_size
-        new_xc.hs_x = new_xc.hs_x if new_xc.hs_x <= new_xc.img_size else (new_xc.img_size / 2.0)
-        new_xc.hs_y = new_xc.hs_y if new_xc.hs_y <= new_xc.img_size else (new_xc.img_size / 2.0)
-        new_xc.hs_x = new_xc.hs_x if (new_xc.hs_x / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
-        new_xc.hs_y = new_xc.hs_y if (new_xc.hs_y / new_xc.img_size) != (15.0/16.0) else (new_xc.img_size / 2.0)
+        new_xc.hotfixes(new_xc, conf_img_size)
+
         new_xc.frame_count = len(conf_lines_list)
 
         return new_xc
