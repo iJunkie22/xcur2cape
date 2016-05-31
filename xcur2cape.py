@@ -8,8 +8,8 @@ import subprocess
 import struct
 import math
 
-
 XCUR2PNG_EXECUTABLE = os.path.expanduser('~/Build/xcur2png/xcur2png')
+DO_TEXTMATE_FIX = True
 
 
 class FrameOverFlowHandler(object):
@@ -124,6 +124,27 @@ class CapeCursor(object):
         d2['Representations'] = [plistlib.Data.fromBase64(x) for x in self.images]
         return d2
 
+    def apply_textmate_fix(self):
+        if DO_TEXTMATE_FIX and self.mc_namekey == 'IBeam':
+            p3 = subprocess.Popen("env convert - -fuzz 1% -trim +repage -",
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  shell=True)
+            stdo1, stde1 = p3.communicate(base64.b64decode(self.images[0]))
+            p4 = subprocess.Popen("env convert - -gravity center -background transparent -extent 16x24 -",
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                  shell=True)
+            stdo2, stde2 = p4.communicate(stdo1)
+            # TODO: make it 16 x 24
+            self.images[0] = base64.b64encode(stdo2)
+            #self.width = 10
+            #self.height = 22
+            #self.hotspotx = 4
+            #self.hotspoty = 9
+            self.width = 16
+            self.height = 24
+            self.hotspotx = 6
+            self.hotspoty = 10
+
     @classmethod
     def from_xcursor_set(cls, xcs, chosen_size=32):
         assert isinstance(xcs, XCursorSet)
@@ -140,6 +161,7 @@ class CapeCursor(object):
                     new_cc.width = float(xc.img_size)
                     new_cc.frame_count = xc.frame_count
             new_cc.mc_namekey = line[1]
+            new_cc.apply_textmate_fix()
             yield new_cc
 
 
@@ -303,8 +325,8 @@ def run_tool(theme_fp):
     plistlib.writePlist(test_pl_dict, test_pl_dict['Identifier'] + '.cape')
 
 
-run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
-run_tool(os.path.expanduser('~/Downloads/Breeze-Snow/'))
+# run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
+# run_tool(os.path.expanduser('~/Downloads/Breeze-Snow/'))
 run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked/'))
-run_tool(os.path.expanduser('~/Downloads/Breeze/'))
+# run_tool(os.path.expanduser('~/Downloads/Breeze/'))
 
