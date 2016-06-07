@@ -317,12 +317,17 @@ class XCursor(object):
 
 
 def run_tool(theme_fp):
+    theme_fp = os.path.abspath(os.path.expanduser(os.path.expandvars(theme_fp)))
     test_xct1 = XCursorTheme.unpack_theme(theme_fp)
     print test_xct1.theme_name
     print len(test_xct1.cursors)
     test_co1 = CapeObject.from_theme(test_xct1)
     test_pl_dict = test_co1.export_dict()
-    plistlib.writePlist(test_pl_dict, test_pl_dict['Identifier'] + '.cape')
+    cape_dir = os.path.join(theme_fp, 'capes')
+    if not os.path.isdir(cape_dir):
+        os.mkdir(cape_dir)
+    out_cape_fp = os.path.join(cape_dir, test_pl_dict['Identifier'] + '.cape')
+    plistlib.writePlist(test_pl_dict, out_cape_fp)
 
 
 # run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
