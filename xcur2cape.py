@@ -1,3 +1,4 @@
+from __future__ import print_function
 import plistlib
 import time
 import os
@@ -7,6 +8,9 @@ import os.path
 import subprocess
 import struct
 import math
+import re
+import collections
+import sys
 
 XCUR2PNG_EXECUTABLE = os.path.expanduser('~/Build/xcur2png/xcur2png')
 DO_TEXTMATE_FIX = True
@@ -53,8 +57,8 @@ class CapeObject(object):
     def __init__(self):
         self.author = os.getenv("LOGNAME")
         self.capename = "Untitled"
-        self._version = float(2).real
-        self.cape_version = float(1).real
+        self._version = 2.0
+        self.cape_version = 1.0
         self.isRetina = False
         self.tstamp = time.time()
         self.cursors = {}
@@ -94,11 +98,11 @@ class CapeCursor(object):
     def __init__(self):
         self.mc_namekey = ""
         self.frame_count = 1
-        self.frame_duration = float(1).real
-        self.hotspotx = float(0.0).real
-        self.hotspoty = float(0.0).real
-        self.height = float(32).real
-        self.width = float(32).real
+        self.frame_duration = 1.0
+        self.hotspotx = 0.0
+        self.hotspoty = 0.0
+        self.height = 32.0
+        self.width = 32.0
         self.images = []
 
     def add_img(self, img_fn):
@@ -114,32 +118,29 @@ class CapeCursor(object):
         return xcurnames.cursor_name_map.get(self.mc_namekey)
 
     def export_dict(self):
-        d2 = {}
-        d2['FrameCount'] = self.frame_count
-        d2['FrameDuration'] = 1.000 / float(self.frame_count)
-        d2['HotSpotX'] = self.hotspotx
-        d2['HotSpotY'] = self.hotspoty
-        d2['PointsHigh'] = self.height
-        d2['PointsWide'] = self.width
-        d2['Representations'] = [plistlib.Data.fromBase64(x) for x in self.images]
+        d2 = {'FrameCount': self.frame_count,
+              'FrameDuration': 1.000 / float(self.frame_count),
+              'HotSpotX': self.hotspotx,
+              'HotSpotY': self.hotspoty,
+              'PointsHigh': self.height,
+              'PointsWide': self.width,
+              'Representations': list(plistlib.Data.fromBase64(x) for x in self.images)
+              }
         return d2
 
     def apply_textmate_fix(self):
         if DO_TEXTMATE_FIX and self.mc_namekey == 'IBeam':
-            p3 = subprocess.Popen("env convert - -fuzz 1% -trim +repage -",
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  shell=True)
-            stdo1, stde1 = p3.communicate(base64.b64decode(self.images[0]))
-            p4 = subprocess.Popen("env convert - -gravity center -background transparent -extent 16x24 -",
-                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                  shell=True)
-            stdo2, stde2 = p4.communicate(stdo1)
+            convert_path = subprocess.check_output(["/usr/bin/which", "convert"]).strip()
+            p3 = subprocess.Popen([convert_path, "-", "-fuzz", "1%", "-trim", "+repage", "-"],
+                                  stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            p4 = subprocess.Popen([convert_path, "-", "-gravity", "center", "-background", "transparent",
+                                   "-extent", "16x24", "-"],
+                                  stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            p3.communicate(base64.b64decode(self.images[0]))
+            stdo2, stde2 = p4.communicate()
             # TODO: make it 16 x 24
             self.images[0] = base64.b64encode(stdo2)
-            #self.width = 10
-            #self.height = 22
-            #self.hotspotx = 4
-            #self.hotspoty = 9
             self.width = 16
             self.height = 24
             self.hotspotx = 6
@@ -170,8 +171,18 @@ class XCursorTheme(object):
         self.cursors = []
         self.theme_name = "Untitled"
 
+    @staticmethod
+    def test_if_theme_directory(candidate_theme_fp):
+        if not os.path.isdir(candidate_theme_fp):
+            return False
+        if not os.path.exists(os.path.join(candidate_theme_fp, 'index.theme')):
+            return False
+        if not os.path.isdir(os.path.join(candidate_theme_fp, 'cursors')):
+            return False
+        return True
+
     @classmethod
-    def unpack_theme(cls, theme_fp, xcur2png_exe_fp=XCUR2PNG_EXECUTABLE):
+    def unpack_theme(cls, theme_fp, xcur2png_exe_fp=XCUR2PNG_EXECUTABLE, dump=True):
         xct = cls()
         with open(os.path.join(theme_fp, 'index.theme'), 'r') as index_fd:
             for line in index_fd:
@@ -179,11 +190,13 @@ class XCursorTheme(object):
                 if p1.startswith("Name"):
                     xct.theme_name = p3.strip().rstrip()
         for xcur_bn in set([x[2] for x in xcurnames.name_table if x[2] != xcurnames.nXCUR]):
-            xct.cursors.append(XCursorSet.from_xcur_file(os.path.join(theme_fp, 'cursors', xcur_bn), xcur2png_exe_fp))
+            xct.cursors.append(XCursorSet.from_xcur_file(os.path.join(theme_fp, 'cursors', xcur_bn),
+                                                         xcur2png_exe_fp, dump=dump))
         return xct
 
 
 class XCursorSet(object):
+
     def __init__(self):
         self.conf_fp = ""
         self.conf_file_str = ""
@@ -195,28 +208,25 @@ class XCursorSet(object):
         return self.xc_name in [x[2] for x in xcurnames.name_table]
 
     def unpack_from_conf(self):
-        conf_line_groups = {}
-        conf_line_keys = conf_line_groups.viewkeys()
+        conf_line_groups = collections.defaultdict(list)
 
         for line in self.conf_file_str.splitlines():
-            if not line.startswith("#"):
-                conf_size = line.partition('\t')[0]
-                if conf_size not in conf_line_keys:
-                    conf_line_groups[conf_size] = []
-                conf_line_groups[conf_size].append(line)
+            xcur_line_match = XCursor.Conf_file_line_pat.match(line)
+            if xcur_line_match:
+                conf_line_groups[xcur_line_match.group("imgSize")].append(line)
 
-        for k in conf_line_keys:
-            if len(conf_line_groups[k]) == 1:   # there is only one frame to show
-                self.xcursors.append(XCursor.from_conf_file_line(self.conf_fp, conf_line_groups[k][0]))
+        for k, v in conf_line_groups.items():
+            if len(v) == 1:   # there is only one frame to show
+                self.xcursors.append(XCursor.from_conf_file_line(self.conf_fp, v[0]))
             else:                               # there is more than one frame to show
-                safe_size_list = FrameOverFlowHandler.smart_step(conf_line_groups[k])  # enforce 24 frame limit
+                safe_size_list = FrameOverFlowHandler.smart_step(v)  # enforce 24 frame limit
                 self.xcursors.append(XCursor.animated_from_conf_file_lines(self.conf_fp, safe_size_list))
 
     @classmethod
     def from_conf_file(cls, conf_fp):
         new_xcs = cls()
         new_xcs.conf_fp = conf_fp
-        new_xcs.xc_name = new_xcs.conf_fp.rpartition(os.sep)[2].rpartition(".")[0]
+        new_xcs.xc_name = os.path.basename(conf_fp).rpartition(".")[0]
         with open(new_xcs.conf_fp, 'r') as conf_fd:
             new_xcs.conf_file_str = conf_fd.read()
 
@@ -224,17 +234,52 @@ class XCursorSet(object):
         return new_xcs
 
     @classmethod
-    def from_xcur_file(cls, xcur_fp, xcur2png_exe_fp=XCUR2PNG_EXECUTABLE):
+    def from_xcur_file(cls, xcur_fp, xcur2png_exe_fp=XCUR2PNG_EXECUTABLE, dump=True):
         ripped_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(xcur_fp)), 'ripped/'))
+        conf_fp = "{}.conf".format(xcur_fp)
         if not os.path.isdir(ripped_dir):
             os.mkdir(ripped_dir)
-        arg_str = '{} -d {} -c {} {}'.format(xcur2png_exe_fp, ripped_dir, xcur_fp + '.conf', xcur_fp)
-        p1 = subprocess.Popen(arg_str, shell=True, stdout=subprocess.PIPE)
-        p1.wait()
-        return cls.from_conf_file(xcur_fp + '.conf')
+        if dump:
+            subprocess.check_call([xcur2png_exe_fp, '-d', ripped_dir, '-c', conf_fp, xcur_fp], stdout=subprocess.PIPE)
+        return cls.from_conf_file(conf_fp)
+
+
+class XCursorConfLine(object):
+    Conf_file_line_pat = re.compile(r"((?P<imgSize>\d+)\t(?P<hsX>\d+)\t(?P<hsY>\d+)\t(?P<fpRaw>[^\t]+))")
+
+    def __init__(self, match_object):
+        self._match_dict = match_object.groupdict()
+
+    @property
+    def img_size(self):
+        return int(self._match_dict["imgSize"])
+
+    @property
+    def hs_x(self):
+        return int(self._match_dict["hsX"])
+
+    @property
+    def hs_y(self):
+        return int(self._match_dict["hsY"])
+
+    @property
+    def fp_raw(self):
+        return self._match_dict["fpRaw"]
+
+    def fp(self, parent_directory_path):
+        if os.path.isabs(self.fp_raw):
+            return self.fp_raw
+        else:
+            return os.path.normpath(os.path.join(parent_directory_path, self.fp_raw))
+
+    @classmethod
+    def from_string(cls, conf_line_str):
+        return cls(cls.Conf_file_line_pat.match(conf_line_str))
 
 
 class XCursor(object):
+    Conf_file_line_pat = re.compile(r"((?P<imgSize>\d+)\t(?P<hsX>\d+)\t(?P<hsY>\d+)\t(?P<fpRaw>[^\t]+))")
+
     def __init__(self):
         self.img_size = 0
         self.hs_x = 0
@@ -261,20 +306,19 @@ class XCursor(object):
     def from_conf_file_line(cls, conf_fp, conf_line_str):
         new_xc = cls()
         assert isinstance(conf_line_str, str)
-        secs = conf_line_str.split()
-        new_xc.img_size = int(secs[0])
-        new_xc.hs_x = int(secs[1])
-        new_xc.hs_y = int(secs[2])
-        if not os.path.isabs(secs[3]):
-            new_xc.fp = os.path.normpath(os.path.join(conf_fp, secs[3]))
-        else:
-            new_xc.fp = secs[3]
+
+        conf_line_match = XCursorConfLine.from_string(conf_line_str)
+        new_xc.img_size = conf_line_match.img_size
+        new_xc.hs_x = conf_line_match.hs_x
+        new_xc.hs_y = conf_line_match.hs_y
+        new_xc.fp = conf_line_match.fp(conf_fp)
+
         with open(new_xc.fp, 'rb') as xcur_fd:
             new_xc.img_data = base64.b64encode(xcur_fd.read())
         z = base64.b64decode(new_xc.img_data)[16:][:8]
         x1, y1 = struct.unpack('>ii', z)
         new_xc.img_size = x1
-        new_xc.hotfixes(new_xc, secs[0])
+        new_xc.hotfixes(new_xc, conf_line_match.img_size)
         return new_xc
 
     @classmethod
@@ -285,7 +329,6 @@ class XCursor(object):
         del trash
         if not os.path.isabs(sample_fp):
             sample_fp = os.path.normpath(os.path.join(conf_fp, sample_fp))
-        sample_img_header = None
         with open(sample_fp, 'rb') as sample_fd:
             sample_img_header = sample_fd.read()[16:][:8]
 
@@ -293,14 +336,17 @@ class XCursor(object):
         sample_img_size = sample_x1
         frame_fns = [conf_line.split()[3] for conf_line in conf_lines_list]
         frame_fns = map(lambda x: x if os.path.isabs(x) else os.path.normpath(os.path.join(conf_fp, x)), frame_fns)
-        frame_fns_quo = ["\'" + z + "\'" for z in frame_fns]
-        frame_fns_str = ' '.join(frame_fns_quo)
-        arg_frmt = "montage {0} -tile 1x -background 'transparent' -geometry '{1}x{1}+0+0>' '{2}'"
+
+        # frame_fns_str = ' '.join(map("\'{}\'".format, frame_fns))
+        montage_path = subprocess.check_output(["/usr/bin/which", "montage"]).strip()
         ripped_dir = os.path.abspath(os.path.dirname(sample_fp))
         export_fp = os.path.join(ripped_dir, 'JOINED_' + os.path.basename(sample_fp))
-        arg_str = arg_frmt.format(frame_fns_str, sample_img_size, export_fp)
-        p2 = subprocess.Popen(arg_str, shell=True, stdout=subprocess.PIPE)
-        p2.wait()
+        args = [montage_path]
+        args.extend(frame_fns)
+        args.extend(["-tile", "1x", "-background", "transparent", "-geometry",
+                     "{0}x{0}+0+0>".format(sample_img_size), export_fp])
+        # print(args)
+        subprocess.check_call(args, stdout=subprocess.PIPE)
 
         new_xc.fp = export_fp
         with open(export_fp, 'rb') as export_fd:
@@ -316,11 +362,14 @@ class XCursor(object):
         return new_xc
 
 
-def run_tool(theme_fp):
+def run_tool(theme_fp, dump=True):
     theme_fp = os.path.abspath(os.path.expanduser(os.path.expandvars(theme_fp)))
-    test_xct1 = XCursorTheme.unpack_theme(theme_fp)
-    print test_xct1.theme_name
-    print len(test_xct1.cursors)
+    if not XCursorTheme.test_if_theme_directory(theme_fp):
+        raise ValueError("\"{}\" does not contain a cursor theme".format(theme_fp))
+
+    test_xct1 = XCursorTheme.unpack_theme(theme_fp, dump=dump)
+    print(test_xct1.theme_name)
+    print(len(test_xct1.cursors))
     test_co1 = CapeObject.from_theme(test_xct1)
     test_pl_dict = test_co1.export_dict()
     cape_dir = os.path.join(theme_fp, 'capes')
@@ -328,10 +377,18 @@ def run_tool(theme_fp):
         os.mkdir(cape_dir)
     out_cape_fp = os.path.join(cape_dir, test_pl_dict['Identifier'] + '.cape')
     plistlib.writePlist(test_pl_dict, out_cape_fp)
+    print("Saved new cape \"{}\" to \"{}\"".format(test_xct1.theme_name, out_cape_fp))
 
+
+if __name__ == '__main__':
+    print(sys.argv)
+    run_tool(sys.argv[1])
 
 # run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
 # run_tool(os.path.expanduser('~/Downloads/Breeze-Snow/'))
-run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked/'))
+# run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked/'))
+# run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked-green/'), False)
+# run_tool(os.path.expanduser('~/Downloads/Breeze-Hacked-red/'), True)
 # run_tool(os.path.expanduser('~/Downloads/Breeze/'))
+# run_tool( os.path.expanduser('~/Developer/Themes/capitaine-cursors/bin/xcursor/'))
 
