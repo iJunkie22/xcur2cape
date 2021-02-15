@@ -1,16 +1,25 @@
 from __future__ import print_function
-import plistlib
-import time
-import os
+import argparse
 import base64
-import xcurnames
-import os.path
-import subprocess
-import struct
-import math
-import re
 import collections
+import glob
+import math
+import os
+import os.path
+import plistlib
+import re
+import struct
+import subprocess
 import sys
+import time
+
+try:
+    # noinspection PyUnresolvedReferences
+    from typing import Dict, List, Union
+except ImportError:
+    pass
+
+import xcurnames
 
 XCUR2PNG_EXECUTABLE = os.path.expanduser('~/Build/xcur2png/xcur2png')
 DO_TEXTMATE_FIX = True
@@ -26,17 +35,26 @@ class FrameOverFlowHandler(object):
 
     @classmethod
     def calc_oflw(cls, frame_list):
+        """
+        :type frame_list: list
+        """
         assert isinstance(frame_list, list)
         return len(frame_list) - cls.MAX_FRAME_COUNT
 
     @classmethod
     def truncate(cls, frame_list):
+        """
+        :type frame_list: list
+        """
         assert isinstance(frame_list, list)
         frame_list = frame_list[:cls.MAX_FRAME_COUNT]
         return frame_list
 
     @classmethod
     def rtruncate(cls, frame_list):
+        """
+        :type frame_list: list
+        """
         assert isinstance(frame_list, list)
         o = cls.calc_oflw(frame_list)
         frame_list = frame_list[o:]
@@ -44,6 +62,9 @@ class FrameOverFlowHandler(object):
 
     @classmethod
     def smart_step(cls, frame_list):    # see frametests.py for tests of this
+        """
+        :type frame_list: list
+        """
         assert isinstance(frame_list, list)
         o = cls.calc_oflw(frame_list)
         if o > 0:
@@ -61,30 +82,33 @@ class CapeObject(object):
         self.cape_version = 1.0
         self.isRetina = False
         self.tstamp = time.time()
-        self.cursors = {}
+        self.cursors = {}  # type: Dict[str,CapeCursor]
 
     def export_dict(self):
-        d1 = {}
-        d1['Author'] = self.author
-        d1['CapeName'] = self.capename
-        d1['Cloud'] = False
-        d1['CapeVersion'] = self.cape_version
-        d1['Version'] = self._version
-        d1['HiDPI'] = self.isRetina
-        d1['MinimumVersion'] = self._version
-        d1['Identifier'] = "local.{}.{}.{}".format(self.author, self.capename, str(self.tstamp))
-        d1['Cursors'] = {}
-        for k, v in self.cursors.items():
-            assert isinstance(v, CapeCursor)
-            d1['Cursors'][k] = v.export_dict()
+        d1 = {'Author': self.author,
+              'CapeName': self.capename,
+              'Cloud': False,
+              'CapeVersion': self.cape_version,
+              'Version': self._version,
+              'HiDPI': self.isRetina,
+              'MinimumVersion': self._version,
+              'Identifier': "local.{}.{}.{}".format(self.author, self.capename, str(self.tstamp)),
+              'Cursors': {k: v.export_dict() for k, v in self.cursors.items()}
+              }
         return d1
 
     def add_cursor(self, cc):
+        """
+        :type cc: CapeCursor
+        """
         assert isinstance(cc, CapeCursor)
         self.cursors[xcurnames.cursor_name_map[cc.mc_namekey]] = cc
 
     @classmethod
     def from_theme(cls, xct):
+        """
+        :type xct: XCursorTheme
+        """
         assert isinstance(xct, XCursorTheme)
         new_co = cls()
         new_co.capename = xct.theme_name
@@ -93,14 +117,61 @@ class CapeObject(object):
                 new_co.add_cursor(cc)
         return new_co
 
+    def matches_other_cape(self, candidate_cape_fp):
+        """
+        Tests whether this cape is the same as another (aside from Identifier).
+
+        :param str candidate_cape_fp: path to other cape file
+        :rtype: bool
+        """
+        print("Testing if \"{}\" matches...".format(candidate_cape_fp))
+        with open(candidate_cape_fp, 'rb') as candidate_cape_fd:
+            other_dict = plistlib.load(candidate_cape_fd)
+
+        # for other_cursor_name in other_dict.get('Cursors', {}).keys():
+        #     patched_reps = list(plistlib.Data(x) for x in
+        #                         other_dict['Cursors'][other_cursor_name].get('Representations', []))
+        #     other_dict['Cursors'][other_cursor_name].update({'Representations': patched_reps})
+        my_dict = self.export_dict()
+        for my_cursor in my_dict['Cursors'].values():
+            my_cursor.update({'Representations': list(x.data for x in my_cursor['Representations'])})
+
+        for k in my_dict.keys():
+            if k == 'Identifier':
+                continue  # Do NOT expect Identifier to match
+            if my_dict[k] != other_dict.get(k):
+                a = my_dict[k]
+                b = other_dict.get(k)
+                if k == 'Cursors':
+                    for a_k in a.keys():
+                        c = a[a_k]
+                        d = b.get(a_k, {'Representations': []})
+                        if c != d:
+                            for c_k in c.keys():
+                                if c[c_k] != d.get(c_k):
+
+                                    print("Cursor {} mismatched at {}".format(a_k, c_k))
+                                    if c_k == 'Representations':
+                                        print(hash(c[c_k][0]), hash(d[c_k][0]))
+                                    print(repr(c[c_k])[-30:])
+                                    print(repr(d.get(c_k))[-30:])
+                            return False
+                else:
+                    print("{} mismatched".format(k))
+                    print(repr(a)[:100])
+                    print(repr(b)[:100])
+                    return False
+
+        return True
+
 
 class CapeCursor(object):
     def __init__(self):
         self.mc_namekey = ""
         self.frame_count = 1
         self.frame_duration = 1.0
-        self.hotspotx = 0.0
-        self.hotspoty = 0.0
+        self.hot_spot_x = 0.0
+        self.hot_spot_y = 0.0
         self.height = 32.0
         self.width = 32.0
         self.images = []
@@ -117,16 +188,34 @@ class CapeCursor(object):
     def plist_namekey(self):
         return xcurnames.cursor_name_map.get(self.mc_namekey)
 
+    def __eq__(self, other):
+        if isinstance(other, CapeCursor):
+            return self.export_dict() == other.export_dict()
+        else:
+            raise NotImplementedError
+
     def export_dict(self):
         d2 = {'FrameCount': self.frame_count,
               'FrameDuration': 1.000 / float(self.frame_count),
-              'HotSpotX': self.hotspotx,
-              'HotSpotY': self.hotspoty,
+              'HotSpotX': self.hot_spot_x,
+              'HotSpotY': self.hot_spot_y,
               'PointsHigh': self.height,
               'PointsWide': self.width,
               'Representations': list(plistlib.Data.fromBase64(x) for x in self.images)
               }
         return d2
+
+    @classmethod
+    def from_exported_dict(cls, exported_dict):
+        new_cc = cls()
+        new_cc.frame_count = exported_dict['FrameCount']
+        new_cc.frame_duration = 1.000 / float(exported_dict['FrameCount'])
+        new_cc.hot_spot_x = exported_dict['HotSpotX']
+        new_cc.hot_spot_y = exported_dict['HotSpotY']
+        new_cc.height = exported_dict['PointsHigh']
+        new_cc.width = exported_dict['PointsWide']
+        new_cc.images = list(plistlib.Data.asBase64(x) for x in exported_dict['Representations'])
+        return new_cc
 
     def apply_textmate_fix(self):
         if DO_TEXTMATE_FIX and self.mc_namekey == 'IBeam':
@@ -138,26 +227,31 @@ class CapeCursor(object):
                                    "-extent", "16x24", "-"],
                                   stdin=p3.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             p3.communicate(base64.b64decode(self.images[0]))
-            stdo2, stde2 = p4.communicate()
+            stdout, stderr = p4.communicate()
             # TODO: make it 16 x 24
-            self.images[0] = base64.b64encode(stdo2)
+            self.images[0] = base64.b64encode(stdout)
             self.width = 16
             self.height = 24
-            self.hotspotx = 6
-            self.hotspoty = 10
+            self.hot_spot_x = 6
+            self.hot_spot_y = 10
 
     @classmethod
     def from_xcursor_set(cls, xcs, chosen_size=32):
+        """
+        :type xcs: XCursorSet
+        :type chosen_size: int
+        :return:
+        """
         assert isinstance(xcs, XCursorSet)
         assert isinstance(chosen_size, int)
         for line in [table_line for table_line in xcurnames.name_table if table_line[2] == xcs.xc_name]:
             new_cc = cls()
-            for xc in xcs.xcursors:
+            for xc in xcs.xcursors:  # type: XCursor
                 assert isinstance(xc, XCursor)
                 if xc.img_size == chosen_size:
                     new_cc.images.append(xc.img_data)
-                    new_cc.hotspotx = float(xc.hs_x)
-                    new_cc.hotspoty = float(xc.hs_y)
+                    new_cc.hot_spot_x = float(xc.hs_x)
+                    new_cc.hot_spot_y = float(xc.hs_y)
                     new_cc.height = float(xc.img_size)
                     new_cc.width = float(xc.img_size)
                     new_cc.frame_count = xc.frame_count
@@ -168,7 +262,7 @@ class CapeCursor(object):
 
 class XCursorTheme(object):
     def __init__(self):
-        self.cursors = []
+        self.cursors = []  # type: List[XCursorSet]
         self.theme_name = "Untitled"
 
     @staticmethod
@@ -200,7 +294,7 @@ class XCursorSet(object):
     def __init__(self):
         self.conf_fp = ""
         self.conf_file_str = ""
-        self.xcursors = []
+        self.xcursors = []  # type: List[XCursor]
         self.xc_name = ""
 
     @property
@@ -288,19 +382,18 @@ class XCursor(object):
         self.img_data = ""
         self.frame_count = 1
 
-    @staticmethod
-    def hotfixes(new_xc1, size_lie):
+    def hotfixes(self, size_lie):
         def tests(a, b):
             if (a > b) or ((a / b) == (15.0 / 16.0)):
                 return b / 2.0
             else:
                 return a
 
-        error_scale = new_xc1.img_size / float(size_lie)
-        new_xc1.hs_x *= error_scale
-        new_xc1.hs_y *= error_scale
-        new_xc1.hs_x = tests(new_xc1.hs_x, new_xc1.img_size)
-        new_xc1.hs_y = tests(new_xc1.hs_y, new_xc1.img_size)
+        error_scale = self.img_size / float(size_lie)
+        self.hs_x *= error_scale
+        self.hs_y *= error_scale
+        self.hs_x = tests(self.hs_x, self.img_size)
+        self.hs_y = tests(self.hs_y, self.img_size)
 
     @classmethod
     def from_conf_file_line(cls, conf_fp, conf_line_str):
@@ -318,7 +411,7 @@ class XCursor(object):
         z = base64.b64decode(new_xc.img_data)[16:][:8]
         x1, y1 = struct.unpack('>ii', z)
         new_xc.img_size = x1
-        new_xc.hotfixes(new_xc, conf_line_match.img_size)
+        new_xc.hotfixes(conf_line_match.img_size)
         return new_xc
 
     @classmethod
@@ -355,7 +448,7 @@ class XCursor(object):
         new_xc.hs_x = float(conf_hs_x)
         new_xc.hs_y = float(conf_hs_y)
         new_xc.img_size = sample_x1
-        new_xc.hotfixes(new_xc, conf_img_size)
+        new_xc.hotfixes(conf_img_size)
 
         new_xc.frame_count = len(conf_lines_list)
 
@@ -375,14 +468,23 @@ def run_tool(theme_fp, dump=True):
     cape_dir = os.path.join(theme_fp, 'capes')
     if not os.path.isdir(cape_dir):
         os.mkdir(cape_dir)
+
+    sibling_glob_name = "local.{}.{}.*.cape".format(test_co1.author, test_co1.capename)
+    for candidate_sibling_cape_fp in glob.iglob(os.path.join(cape_dir, sibling_glob_name)):
+        if test_co1.matches_other_cape(candidate_sibling_cape_fp):
+            print("Skipping saving a duplicate of \"{}\"".format(candidate_sibling_cape_fp))
+            return False
     out_cape_fp = os.path.join(cape_dir, test_pl_dict['Identifier'] + '.cape')
     plistlib.writePlist(test_pl_dict, out_cape_fp)
     print("Saved new cape \"{}\" to \"{}\"".format(test_xct1.theme_name, out_cape_fp))
 
 
 if __name__ == '__main__':
-    print(sys.argv)
-    run_tool(sys.argv[1])
+    parser = argparse.ArgumentParser("xcur2cape")
+    parser.add_argument(dest="xcur_theme_fp",
+                        help="Path to the XCursor theme you want to convert (should contain an index.theme file).")
+    args = parser.parse_args()
+    run_tool(args.xcur_theme_fp)
 
 # run_tool(os.path.expanduser('~/Downloads/Breeze-Obsidian/'))
 # run_tool(os.path.expanduser('~/Downloads/Breeze-Snow/'))
